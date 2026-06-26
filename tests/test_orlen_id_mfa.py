@@ -6,7 +6,7 @@ import requests
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
-from custom_components.pgnig_gas_sensor.auth.exceptions import MfaRequired
+from custom_components.pgnig_gas_sensor.auth.exceptions import MfaRequired, MfaSessionExpiredError
 from custom_components.pgnig_gas_sensor.auth.orlen_id import (
     OrlenIDAuth,
     _build_mfa_payload,
@@ -136,6 +136,48 @@ async def test_config_flow_mfa_step_after_mfa_required(hass):
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_ORLEN_SESSION]["token"] == "token-xyz"
     mock_api.complete_mfa.assert_called_once_with(pending, "123456")
+
+
+@pytest.mark.asyncio
+async def test_config_flow_returns_to_user_on_mfa_session_expired(hass):
+    pending = {
+        "username": "user@test.pl",
+        "password": "secret",
+        "device_id": "device123",
+        "cookies": [],
+        "mfa_post_url": "https://oid-ws.orlen.pl/auth",
+        "mfa_form_fields": {},
+        "mfa_field_name": "code",
+        "mfa_referer": "https://oid-ws.orlen.pl/",
+    }
+
+    with patch("custom_components.pgnig_gas_sensor.config_flow.PgnigApi") as mock_api_cls:
+        mock_api = MagicMock()
+        mock_api.login.side_effect = MfaRequired(pending)
+        mock_api.complete_mfa.side_effect = MfaSessionExpiredError("session expired")
+        mock_api_cls.return_value = mock_api
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_AUTH_METHOD: AUTH_METHOD_ORLEN_ID,
+                CONF_USERNAME: "user@test.pl",
+                CONF_PASSWORD: "secret",
+            },
+        )
+        assert result["step_id"] == "mfa"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_MFA_CODE: "999999"},
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"]["base"] == "mfa_session_expired"
 
 
 def test_build_pending_mfa_from_sms_response():
