@@ -7,7 +7,8 @@ from .Invoices import invoices_from_dict, Invoices
 from .PgpList import PpgList, ppg_list_from_dict
 from .PpgReadingForMeter import PpgReadingForMeter, ppg_reading_for_meter_from_dict
 from .auth import AuthRegistry
-from .const import DEFAULT_AUTH_METHOD
+from .auth.orlen_id import OrlenIDAuth
+from .const import AUTH_METHOD_ORLEN_ID, DEFAULT_AUTH_METHOD
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,13 +24,23 @@ invoices_url = (
 
 
 class PgnigApi:
-    def __init__(self, username, password, auth_method=DEFAULT_AUTH_METHOD) -> None:
+    def __init__(
+        self,
+        username,
+        password,
+        auth_method=DEFAULT_AUTH_METHOD,
+        session_data=None,
+    ) -> None:
         self.username = username
         self.password = password
         auth_class = AuthRegistry.get(auth_method)
         if auth_class is None:
             raise ValueError(f"Unknown auth method: {auth_method}")
-        self._auth = auth_class(username, password)
+        self._auth_method = auth_method
+        if auth_method == AUTH_METHOD_ORLEN_ID:
+            self._auth = auth_class(username, password, session_data=session_data)
+        else:
+            self._auth = auth_class(username, password)
         self._login_lock = threading.Lock()
 
     def _api_headers(self, token):
@@ -85,3 +96,17 @@ class PgnigApi:
         with self._login_lock:
             _LOGGER.debug("PgnigApi.login() delegating to %s", type(self._auth).__name__)
             return self._auth.login()
+
+    def export_orlen_session(self) -> dict | None:
+        if self._auth_method != AUTH_METHOD_ORLEN_ID or not isinstance(
+            self._auth, OrlenIDAuth
+        ):
+            return None
+        return self._auth.export_session()
+
+    def complete_mfa(self, pending: dict, code: str) -> str:
+        if self._auth_method != AUTH_METHOD_ORLEN_ID:
+            raise ValueError("MFA is only supported for OrlenID authentication")
+        if not isinstance(self._auth, OrlenIDAuth):
+            raise ValueError("OrlenID auth handler is not active")
+        return self._auth.complete_mfa(pending, code)
