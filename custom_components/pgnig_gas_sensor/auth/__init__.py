@@ -31,6 +31,10 @@ class AuthMethod(ABC):
     def login(self) -> str:
         pass
 
+    @abstractmethod
+    def invalidate_token(self) -> None:
+        pass
+
 
 class AuthRegistry:
     _methods: dict[str, type[AuthMethod]] = {}

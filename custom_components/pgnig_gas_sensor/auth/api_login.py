@@ -56,6 +56,10 @@ class ApiLoginAuth(AuthMethod):
         resp = self._session.get(BASE_URL, timeout=30)
         _LOGGER.debug("Session init status: %s, cookies: %s", resp.status_code, dict(self._session.cookies))
 
+    def invalidate_token(self) -> None:
+        _LOGGER.debug("Invalidating cached auth token")
+        self._cached_token = ""
+
     def login(self) -> str:
         if self._cached_token:
             _LOGGER.debug("Using cached auth token")
