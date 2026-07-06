@@ -97,3 +97,7 @@ class ApiLoginAuth(AuthMethod):
         self._cached_token = token
         _LOGGER.debug("Token obtained: %s...", token[:20])
         return token
+
+    def invalidate_token(self) -> None:
+        """Drop in-memory API token so the next login() fetches a fresh one."""
+        self._cached_token = ""

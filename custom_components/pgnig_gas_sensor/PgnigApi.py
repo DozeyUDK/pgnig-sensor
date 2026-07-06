@@ -7,6 +7,7 @@ from .Invoices import invoices_from_dict, Invoices
 from .PgpList import PpgList, ppg_list_from_dict
 from .PpgReadingForMeter import PpgReadingForMeter, ppg_reading_for_meter_from_dict
 from .auth import AuthRegistry
+from .auth.exceptions import SessionExpiredError
 from .auth.orlen_id import OrlenIDAuth
 from .const import AUTH_METHOD_ORLEN_ID, DEFAULT_AUTH_METHOD
 
@@ -53,6 +54,22 @@ class PgnigApi:
     def invalidate_token(self) -> None:
         self._auth.invalidate_token()
 
+    def refresh_auth_token(self) -> str:
+        """Refresh EBOK API token using the current HTTP session (no MFA)."""
+        with self._login_lock:
+            if self._auth_method == AUTH_METHOD_ORLEN_ID and isinstance(
+                self._auth, OrlenIDAuth
+            ):
+                self.invalidate_token()
+                token = self._auth._try_restore_session_token()
+                if not token:
+                    raise SessionExpiredError(
+                        "OrlenID session expired; re-authenticate in Home Assistant"
+                    )
+                return token
+            self.invalidate_token()
+            return self._auth.login()
+
     def _get_authenticated(self, url: str, operation: str) -> requests.Response:
         last_response = None
         for attempt in range(2):
@@ -62,11 +79,13 @@ class PgnigApi:
                 )
                 self.invalidate_token()
 
-            token = self.login()
+            token = self.login(allow_interactive=False)
             if not token:
                 raise RuntimeError("Login failed - no token received")
 
-            resp = self._auth.session.get(url, headers=self._api_headers(token))
+            resp = self._auth.session.get(
+                url, headers=self._api_headers(token), timeout=30
+            )
             if resp.status_code == 401 and attempt == 0:
                 last_response = resp
                 continue
@@ -92,9 +111,15 @@ class PgnigApi:
         resp = self._get_authenticated(invoices_url, "Invoices")
         return invoices_from_dict(resp.json())
 
-    def login(self) -> str:
+    def login(self, *, allow_interactive: bool = False) -> str:
         with self._login_lock:
-            _LOGGER.debug("PgnigApi.login() delegating to %s", type(self._auth).__name__)
+            _LOGGER.debug(
+                "PgnigApi.login() delegating to %s", type(self._auth).__name__
+            )
+            if self._auth_method == AUTH_METHOD_ORLEN_ID and isinstance(
+                self._auth, OrlenIDAuth
+            ):
+                return self._auth.login(allow_interactive=allow_interactive)
             return self._auth.login()
 
     def export_orlen_session(self) -> dict | None:

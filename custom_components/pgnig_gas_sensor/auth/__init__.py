@@ -63,5 +63,11 @@ def device_id(username: str) -> str:
 
 
 from .api_login import ApiLoginAuth  # noqa: E402
-from .exceptions import AuthError, InvalidAuthError, MfaFailedError, MfaRequired  # noqa: E402
+from .exceptions import (  # noqa: E402
+    AuthError,
+    InvalidAuthError,
+    MfaFailedError,
+    MfaRequired,
+    SessionExpiredError,
+)
 from .orlen_id import OrlenIDAuth  # noqa: E402
